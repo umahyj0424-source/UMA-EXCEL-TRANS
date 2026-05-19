@@ -1,0 +1,6 @@
+Offline vendor files for this static GitHub Pages bundle.
+
+- hyperformula.full.min.js: HyperFormula-compatible local formula adapter for the bundled workbook.
+- chart.umd.min.js: Chart.js-compatible lightweight canvas line-chart renderer.
+
+They remove CDN/network dependency. To use the official libraries instead, replace these two files with official builds using the same filenames.

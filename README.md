@@ -30,3 +30,15 @@
 ## 주의
 
 `index.html`은 CDN으로 HyperFormula와 Chart.js를 불러옵니다. 완전 오프라인 배포가 필요하면 해당 라이브러리 파일을 `assets/vendor/`에 직접 넣고 `index.html`의 `<script>` 경로를 바꿔 주세요.
+
+
+## 오프라인 번들
+
+이 패키지는 `assets/vendor/` 아래에 로컬 실행용 파일을 포함합니다. 따라서 인터넷이 끊긴 환경에서도 `index.html`을 직접 열어 기본 계산/그래프가 동작하도록 구성되어 있습니다.
+
+포함 파일:
+
+- `assets/vendor/hyperformula.full.min.js`: HyperFormula 호환 로컬 수식 계산 어댑터
+- `assets/vendor/chart.umd.min.js`: Chart.js 호환 경량 canvas 라인차트 렌더러
+
+주의: 이 오프라인 번들은 CDN 의존성을 제거하기 위한 호환 번들입니다. 원본 공식 HyperFormula/Chart.js 파일로 교체하려면 같은 파일명으로 `assets/vendor/`에 덮어쓰면 됩니다.
