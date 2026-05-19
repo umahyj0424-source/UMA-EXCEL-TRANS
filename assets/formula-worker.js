@@ -44,7 +44,7 @@ function init(){
     sendStatus(10, 'HyperFormula CDN 로딩 중…');
     if(!self.HyperFormula) importScripts('https://cdn.jsdelivr.net/npm/hyperformula@2.7.1/dist/hyperformula.full.min.js');
     sendStatus(24, '원본 엑셀 수식 데이터 로딩 중…');
-    importScripts('workbook-data.js');
+    importScripts('workbook-data.js?v=chartfix1');
     DATA = self.UMA_XLSX_DATA;
     sendStatus(42, '수식 엔진 생성 중…');
     hf = HyperFormula.buildFromSheets(DATA.workbook.sheets, { licenseKey:'gpl-v3', useArrayArithmetic:true, useColumnIndex:true, nullYear:30 });
@@ -75,12 +75,157 @@ function syncInputsToWorkbook(state){
   });
 }
 
-function buildResult(){
+
+function validChartPointCount(chart){
+  if(!chart) return 0;
+  let n = 0;
+  const len = Math.max(chart.labels?.length||0, chart.skill?.length||0, chart.noskill?.length||0);
+  for(let i=0;i<len;i++){
+    const x = Number(chart.labels?.[i]);
+    const y1 = Number(chart.skill?.[i]);
+    const y0 = Number(chart.noskill?.[i]);
+    if(Number.isFinite(x) && (Number.isFinite(y1) || Number.isFinite(y0))) n++;
+  }
+  return n;
+}
+function numOr(v, fallback=0){ const n=Number(v); return Number.isFinite(n)?n:fallback; }
+const APT_FALLBACK = {'S':1.05,'A':1,'B':0.9,'C':0.8,'D':0.6,'E':0.4,'F':0.2,'G':0.1};
+const MOOD_FALLBACK = {'絶好調':1.04,'好調':1.02,'普通':1,'不調':0.98,'絶不調':0.96};
+const TRACK_FALLBACK = {'良':{speed:0,power:0},'稍重':{speed:0,power:-50},'重':{speed:0,power:-50},'不良':{speed:-50,power:-50}};
+const STYLE_FALLBACK = {
+  '大逃げ':{early:1.01, mid:0.975, final:0.985, accel:0.94},
+  '逃げ':{early:1.00, mid:0.98, final:0.995, accel:0.95},
+  '先行':{early:0.98, mid:0.99, final:1.00, accel:1.00},
+  '差し':{early:0.96, mid:1.00, final:1.012, accel:1.03},
+  '追込':{early:0.94, mid:1.005, final:1.018, accel:1.04}
+};
+function phaseBoundsFallback(course){ const L=numOr(course.total, 1200); return {early:[0,L/6], middle:[L/6,L*2/3], late:[L*2/3,L*5/6], last:[L*5/6,L], end:L}; }
+function phaseNameFallback(d, course){ const p=phaseBoundsFallback(course); if(d<p.early[1]) return 'early'; if(d<p.middle[1]) return 'middle'; if(d<p.late[1]) return 'late'; return 'last'; }
+function phaseRangeForOptionFallback(opt, course){
+  const p=phaseBoundsFallback(course), L=numOr(course.total,1200);
+  if(opt==='前半のみ') return [0,L/2]; if(opt==='後半のみ') return [L/2,L];
+  if(opt==='序盤のみ') return p.early; if(opt==='中盤のみ') return p.middle; if(opt==='終盤のみ') return p.late; if(opt==='最終盤のみ') return p.last;
+  return [0,L];
+}
+function baseOffsetFallback(opt, course){
+  const p=phaseBoundsFallback(course), L=numOr(course.total,1200);
+  return {'基準:スタート':0,'基準:中盤開始':p.early[1],'基準:終盤開始':p.middle[1],'基準:最終盤開始':p.late[1],'基準:ゴール地点':L}[opt] ?? 0;
+}
+function findFirstSegmentFallback(segs, opt, course, minPos=0){
+  let range=phaseRangeForOptionFallback(opt, course);
+  if(opt==='以降の上り坂'||opt==='以降の下り坂'||opt==='以降の直線'||opt==='以降のコーナー'||opt==='以降の最終コーナー'||opt==='指定地点で発動') range=[minPos, numOr(course.total,1200)];
+  const candidates=(segs||[]).map(s=>[Math.max(numOr(s[0]), range[0]), Math.min(numOr(s[1]), range[1]), s]).filter(x=>x[1]>x[0]).sort((a,b)=>a[0]-b[0]);
+  return candidates.length ? candidates[0][0] : null;
+}
+function lastSegmentStartFallback(segs){ return segs && segs.length ? numOr(segs[segs.length-1][0]) : null; }
+function slopeAtFallback(d, course){
+  for(const s of course.uphills||[]) if(d>=numOr(s[0]) && d<numOr(s[1])) return numOr(s[2],1);
+  for(const s of course.downhills||[]) if(d>=numOr(s[0]) && d<numOr(s[1])) return -numOr(s[2],1);
+  return 0;
+}
+function effectiveStatsFallback(state){
+  const inputs=state.inputs||{}; const mood=MOOD_FALLBACK[inputs.mood]||1; const tr=TRACK_FALLBACK[inputs.trackCondition]||TRACK_FALLBACK['良'];
+  const st={
+    speed:numOr(inputs.stat_speed)+numOr(inputs.green_speed)+tr.speed,
+    stamina:numOr(inputs.stat_stamina)+numOr(inputs.green_stamina),
+    power:numOr(inputs.stat_power)+numOr(inputs.green_power)+tr.power,
+    guts:numOr(inputs.stat_guts)+numOr(inputs.green_guts),
+    wisdom:numOr(inputs.stat_wisdom)+numOr(inputs.green_wisdom)
+  };
+  for(const k of Object.keys(st)) st[k]=Math.max(1, Math.round(st[k]*mood));
+  const course=state.course||{}; const bonus=inputs.courseBonus||'最大';
+  const targets = bonus==='最大' ? [course.courseBonus1J, course.courseBonus2J].filter(Boolean) : [bonus];
+  const map={'スピード':'speed','スタミナ':'stamina','パワー':'power','根性':'guts','賢さ':'wisdom'};
+  for(const b of targets) if(map[b]) st[map[b]]=Math.round(st[map[b]]*1.04);
+  return st;
+}
+function baseParamsFallback(state){
+  const course=state.course||{}; const inputs=state.inputs||{}; const L=numOr(course.total,1200); const st=effectiveStatsFallback(state);
+  const distApt=APT_FALLBACK[inputs.apt_distance]||1; const surfApt=APT_FALLBACK[inputs.apt_surface]||1; const style=STYLE_FALLBACK[inputs.style]||STYLE_FALLBACK['先行'];
+  const baseSpeed=18.4 + Math.sqrt(Math.max(st.speed,1))/32 + (L>=2500 ? -0.25 : L<=1400 ? 0.20 : 0);
+  const baseAccel=0.0006*Math.sqrt(500*Math.max(st.power,1))*surfApt*style.accel;
+  const staminaRatio=Math.min(1.08, Math.max(0.78, st.stamina/(L*0.45+450)));
+  const gutsBonus=Math.min(0.25, Math.sqrt(st.guts)/170);
+  const wisdomStability=Math.min(0.08, Math.sqrt(st.wisdom)/600);
+  return {st, baseAccel, targets:{
+    early:baseSpeed*0.978*distApt*style.early,
+    middle:baseSpeed*0.991*distApt*style.mid,
+    late:baseSpeed*(1.235+gutsBonus)*distApt*style.final*Math.min(1,staminaRatio),
+    last:baseSpeed*(1.265+gutsBonus+wisdomStability)*distApt*style.final*Math.min(1,staminaRatio)
+  }};
+}
+function triggerPointFallback(skill, course){
+  const L=numOr(course.total,1200); const v=numOr(skill.value,0); const p=phaseBoundsFallback(course); const tr=skill.triggerJ||''; const opt=skill.optionJ||'条件なし';
+  if(tr==='スタート時') return {type:'distance', at:0};
+  if(tr==='経過時間[s]') return {type:'time', at:v};
+  if(tr==='走行距離[m]') return {type:'distance', at:Math.max(0, Math.min(L, baseOffsetFallback(opt,course)+v))};
+  if(tr==='残り距離[m]') return {type:'distance', at:Math.max(0, Math.min(L, L-v))};
+  if(tr==='地点[%]指定') return {type:'distance', at:Math.max(0, Math.min(L, L*v/100))};
+  if(tr==='序盤のみ') return {type:'distance', at:p.early[0]};
+  if(tr==='中盤のみ') return {type:'distance', at:p.middle[0]};
+  if(tr==='終盤のみ') return {type:'distance', at:p.late[0]};
+  if(tr==='最終盤のみ') return {type:'distance', at:p.last[0]};
+  if(tr==='後半') return {type:'distance', at:L/2};
+  if(tr==='コーナー最速') return {type:'distance', at:findFirstSegmentFallback(course.corners, opt, course, v)};
+  if(tr==='直線最速') return {type:'distance', at:findFirstSegmentFallback(course.straights, opt, course, v)};
+  if(tr==='上り坂最速') return {type:'distance', at:findFirstSegmentFallback(course.uphills, opt, course, v)};
+  if(tr==='下り坂最速') return {type:'distance', at:findFirstSegmentFallback(course.downhills, opt, course, v)};
+  if(tr==='終盤コーナー') return {type:'distance', at:findFirstSegmentFallback(course.corners, '条件なし', course, p.middle[1])};
+  if(tr==='最終コーナー'||tr==='最終第3コーナー') return {type:'distance', at:lastSegmentStartFallback(course.corners)};
+  if(tr==='終盤直線') return {type:'distance', at:findFirstSegmentFallback(course.straights, '条件なし', course, p.middle[1])};
+  if(tr==='最終直線') return {type:'distance', at:lastSegmentStartFallback(course.straights)};
+  return {type:'distance', at:null};
+}
+function prepareSkillsFallback(state){
+  const course=state.course||{};
+  return (state.skills||[]).filter(s=>s.enabled||s.premise).map((s,idx)=>{
+    const tp=triggerPointFallback(s, course); const dur=Math.max(0, numOr(s.duration,3)*numOr(course.total,1200)/1000);
+    return {...s, idx, target:numOr(s.target), accel:numOr(s.accel), instant:numOr(s.instant), stretch:numOr(s.stretch), duration:numOr(s.duration,3), triggerType:tp.type, triggerAt:tp.at, actualDuration:dur, activated:false, startTime:null, endTime:null};
+  }).filter(s=>Number.isFinite(s.triggerAt));
+}
+function simulateFallback(state, withSkills){
+  const course=state.course||{}; const params=baseParamsFallback(state); const inputs=state.inputs||{}; const L=numOr(course.total,1200);
+  const dt=0.04; let t=0,d=0,v=3.0,guard=0; const points=[]; const events=[]; const skills=withSkills?prepareSkillsFallback(state):[];
+  while(d<L && t<360 && guard<20000){
+    guard++;
+    const phase=phaseNameFallback(d, course); let target=params.targets[phase]||params.targets.middle; let accel=params.baseAccel*(phase==='early'?1.0:(phase==='middle'?1.02:1.04));
+    const slope=slopeAtFallback(d, course); if(slope>0) target-=0.12*slope; if(slope<0) target+=0.05*Math.abs(slope);
+    for(const s of skills){
+      if(!s.activated && ((s.triggerType==='time' && t>=s.triggerAt) || (s.triggerType==='distance' && d>=s.triggerAt))){
+        s.activated=true; s.startTime=t; s.endTime=t+s.actualDuration; events.push({name:s.nameKR||s.nameJ||'', time:t, distance:d}); if(s.instant) v+=s.instant;
+      }
+      if(s.activated && t<=s.endTime){ target+=(s.target||0)+(s.stretch||0)*0.15; accel+=(s.accel||0); }
+    }
+    const diff=target-v; if(diff>0) v+=Math.min(diff, accel*dt); else v+=Math.max(diff, -1.2*dt); v=Math.max(3.0,v);
+    d+=v*dt; t+=dt;
+    if(points.length===0 || t-points[points.length-1].t>=0.18 || d>=L) points.push({t,d:Math.min(d,L),v});
+  }
+  return {time:t, points, events};
+}
+function interpFallback(points, t){
+  if(!points || !points.length) return null; if(t<=points[0].t) return points[0].v;
+  for(let i=1;i<points.length;i++){ const a=points[i-1], b=points[i]; if(t<=b.t){ const k=(t-a.t)/(b.t-a.t||1); return a.v+(b.v-a.v)*k; }}
+  return points[points.length-1].v;
+}
+function buildFallbackChart(state){
+  const no=simulateFallback(state,false), yes=simulateFallback(state,true); const labels=[], skill=[], noskill=[];
+  const maxT=Math.max(no.time, yes.time); const step=Math.max(0.18, maxT/240);
+  for(let t=0;t<=maxT+1e-6;t+=step){ labels.push(Number(t.toFixed(2))); skill.push(Number(interpFallback(yes.points,t).toFixed(4))); noskill.push(Number(interpFallback(no.points,t).toFixed(4))); }
+  if(labels[labels.length-1] < maxT){ labels.push(Number(maxT.toFixed(2))); skill.push(Number(interpFallback(yes.points,maxT).toFixed(4))); noskill.push(Number(interpFallback(no.points,maxT).toFixed(4))); }
+  return {labels, skill, noskill, source:'fallback', fallbackTimes:{skill:yes.time, noskill:no.time}};
+}
+function buildFormulaChart(){
   const labels=[], skill=[], noskill=[];
-  for(let r=2;r<=126;r++){
+  for(let r=2;r<=200;r++){
     const x=get('sim1','Y'+r); const y1=get('sim1','X'+r); const y0=get('sim2','X'+r);
     if(typeof x==='number' && x>=0 && x<9999){labels.push(Number(x.toFixed(3))); skill.push(typeof y1==='number'?y1:null); noskill.push(typeof y0==='number'?y0:null);}
   }
+  return {labels, skill, noskill, source:'formula'};
+}
+function buildResult(state={}){
+  let chart = buildFormulaChart();
+  let chartSource = 'formula';
+  if(validChartPointCount(chart) < 8){ chart = buildFallbackChart(state); chartSource = 'fallback'; }
   const skillPositions=[];
   for(let i=0;i<49;i++){
     const pos=get('sim1','K'+(3+i));
@@ -91,7 +236,9 @@ function buildResult(){
       actualTime:get('main','B29'), noskillTime:get('main','E29'), timeDiff:get('main','H29'), bodyDiff:get('main','J29'), meterDiff:get('main','N29'),
       eff_speed:get('db','AL3'), eff_stamina:get('db','AL4'), eff_power:get('db','AL5'), eff_guts:get('db','AL6'), eff_wisdom:get('db','AL7')
     },
-    chart: {labels, skill, noskill},
+    chart,
+    chartSource,
+    chartPointCount: validChartPointCount(chart),
     skillPositions
   };
 }
@@ -103,7 +250,7 @@ function run(requestId, state){
     sendStatus(18, '입력값을 수식 시트에 반영 중…');
     withFormulaBatch(()=>syncInputsToWorkbook(state));
     sendStatus(76, '계산 결과를 읽는 중…');
-    const result = buildResult();
+    const result = buildResult(state);
     sendStatus(94, '그래프 데이터를 전송 중…');
     postMessage({type:'result', requestId, result, ms: performance.now()-t0, formulaCount: DATA.workbook.formulaCount});
   }catch(e){ sendError(e, requestId); }

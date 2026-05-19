@@ -115,7 +115,7 @@ function collectState(){
 function createWorker(){
   setProgress(4, '계산 워커 시작 중…', true);
   setFormulaStatus(`<span class="status-warn">초기화 중</span> · 수식 계산을 별도 Worker로 분리하는 중`);
-  formulaWorker = new Worker('assets/formula-worker.js');
+  formulaWorker = new Worker('assets/formula-worker.js?v=chartfix1');
   formulaWorker.onmessage = (event)=>{
     const msg = event.data || {};
     if(msg.type === 'status'){
@@ -184,7 +184,7 @@ function applyResult(result, ms, formulaCount){
   $('eff_power').textContent=fmt(r.eff_power,0);
   $('eff_guts').textContent=fmt(r.eff_guts,0);
   $('eff_wisdom').textContent=fmt(r.eff_wisdom,0);
-  setFormulaStatus(`<span class="status-ok">수식 엔진 ON</span> · Worker 분리 계산 · formulas ${Number(formulaCount||DATA.formulaInfo.formulaCount).toLocaleString('ko-KR')}개 · 최근 ${Math.round(ms||0)}ms`);
+  setFormulaStatus(`<span class="status-ok">수식 엔진 ON</span> · Worker 분리 계산 · formulas ${Number(formulaCount||DATA.formulaInfo.formulaCount).toLocaleString('ko-KR')}개 · 최근 ${Math.round(ms||0)}ms · 그래프 ${result.chartSource==='fallback'?'보정':'수식'} ${result.chartPointCount||0}점`);
   renderCourseInfo();
   renderChart(result.chart || {labels:[],skill:[],noskill:[]});
   updateSkillPreviewValues(result.skillPositions || []);
@@ -192,9 +192,12 @@ function applyResult(result, ms, formulaCount){
 
 function renderChart(chartData){
   const ctx=$('chart').getContext('2d');
-  const data={labels:chartData.labels||[],datasets:[{label:'스킬 없음',data:chartData.noskill||[],borderColor:'#ef4444',backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:0},{label:'스킬 있음',data:chartData.skill||[],borderColor:'#4f74ff',backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:0}]};
-  if(chart){chart.data=data; chart.update('none'); return;}
-  chart=new Chart(ctx,{type:'line',data,options:{responsive:true,maintainAspectRatio:false,animation:false,normalized:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top'},tooltip:{callbacks:{title:items=>`시간 ${items[0].label}s`,label:i=>`${i.dataset.label}: ${Number(i.parsed.y).toFixed(3)} m/s`}}},scales:{x:{title:{display:true,text:'경과시간[s]'},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'주행속도[m/s]'},min:14}}}});
+  const labels=(chartData.labels||[]).map(v=>Number.isFinite(Number(v))?Number(v):v);
+  const norm=arr=>(arr||[]).map(v=>Number.isFinite(Number(v))?Number(v):null);
+  const data={labels,datasets:[{label:'스킬 없음',data:norm(chartData.noskill),borderColor:'#ef4444',backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:0},{label:'스킬 있음',data:norm(chartData.skill),borderColor:'#4f74ff',backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:0}]};
+  const options={responsive:true,maintainAspectRatio:false,animation:false,normalized:true,spanGaps:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top'},tooltip:{callbacks:{title:items=>`시간 ${items[0].label}s`,label:i=>`${i.dataset.label}: ${Number(i.parsed.y).toFixed(3)} m/s`}}},scales:{x:{title:{display:true,text:'경과시간[s]'},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'주행속도[m/s]'},suggestedMin:0}}};
+  if(chart){chart.data=data; chart.options=options; chart.update('none'); return;}
+  chart=new Chart(ctx,{type:'line',data,options});
 }
 function updateSkillPreviewValues(positions){
   qsa('#skillRows tr').forEach((tr,i)=>{
