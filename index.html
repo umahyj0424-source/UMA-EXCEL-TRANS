@@ -3,11 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>우마무스메 스킬 시뮬레이터 ver.5.0 KR · 수식 기반</title>
+<title>우마무스메 스킬 시뮬레이터 ver.5.0 KR · Worker 수식 기반</title>
 <link rel="stylesheet" href="assets/style.css">
-<script src="https://cdn.jsdelivr.net/npm/hyperformula@2.7.1/dist/hyperformula.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="assets/workbook-data.js"></script>
+<script src="assets/ui-data.js"></script>
 <script defer src="assets/app.js"></script>
 </head>
 <body>
@@ -15,13 +14,14 @@
   <div class="topbar">
     <div class="title">우마무스메 스킬 시뮬레이터 ver.5.0 KR</div>
     <div class="toolbar">
-      <span class="formula-badge">엑셀 수식 기반</span>
+      <span class="formula-badge">Worker 수식 기반</span>
       <button id="runBtn" class="primary">시뮬레이션 실행</button>
       <button id="saveJson">JSON 저장</button>
       <label><button type="button" onclick="document.getElementById('loadJson').click()">JSON 불러오기</button><input id="loadJson" type="file" accept="application/json" style="display:none"></label>
     </div>
   </div>
-  <div class="notice"><b>계산 방식:</b> 기존 간이 JS 계산식을 제거하고, 원본 XLSX의 셀 값/수식 24,851개를 브라우저 수식 엔진에 적재해 재계산합니다. Excel 동적 배열 표시식은 GitHub Pages에서도 동작하도록 일반 수식으로 패치했습니다. <span id="formulaStatus">초기화 중…</span></div>
+  <div class="notice"><b>계산 방식:</b> 원본 XLSX 수식 계산은 별도 Web Worker에서 실행합니다. 입력값을 바꾼 뒤 <b>시뮬레이션 실행</b>을 눌러 계산합니다. <span id="formulaStatus">초기화 중…</span></div>
+  <div id="runStatus" class="run-status"><div id="progressText">초기화 중…</div><div class="progressbar"><div id="progressFill" class="progress-fill"></div></div></div>
   <div class="layout">
     <div>
       <div class="panel"><div class="section-title">스테이터스 설정</div><table><tr><th></th><th>스탯값</th><th>초록 스킬</th><th>계산값</th></tr>
@@ -38,7 +38,7 @@
     </div>
     <div><div class="chart-panel"><div class="chart-wrap"><canvas id="chart"></canvas></div></div><div class="skill-panel"><div class="section-title">스킬 설정</div><div class="toolbar" style="padding:8px"><button id="addSkill">행 추가</button><button id="loadDefault">기본 예시</button><button id="clearSkills" class="danger">초기화</button></div><datalist id="skillList"></datalist><table class="skill-table"><thead><tr><th>#</th><th>발동</th><th>전제</th><th>종류</th><th>스킬명</th><th>목표속도</th><th>가속도</th><th>즉시속도</th><th>뻗음</th><th>시간</th><th>발동조건</th><th>수치</th><th>옵션</th><th>실제 위치</th></tr></thead><tbody id="skillRows"></tbody></table></div></div>
   </div>
-  <div class="footer">GitHub Pages 배포용 정적 사이트입니다. 인터넷 연결이 차단된 환경에서는 CDN 수식 엔진/차트 라이브러리를 로드할 수 없습니다.</div>
+  <div class="footer">GitHub Pages 배포용 정적 사이트입니다. HyperFormula는 Worker 내부에서 CDN으로 로드하고, 차트는 Chart.js CDN을 사용합니다.</div>
 </div>
 </body>
 </html>
