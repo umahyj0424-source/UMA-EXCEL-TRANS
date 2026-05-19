@@ -4,13 +4,38 @@ const DATA = window.UMA_XLSX_DATA;
 const $ = (id)=>document.getElementById(id);
 const qsa = (sel)=>Array.from(document.querySelectorAll(sel));
 let hf=null, sheetIds={}, chart=null, skillRowCount=0, lastError=null;
+let writeCache = new Map();
+let runTimer = null;
+let lastRunMs = 0;
 function tr(s){return DATA.translations[s]||s||''}
 function option(list, selected){return list.map(x=>`<option value="${esc(x.ja)}" ${x.ja===selected?'selected':''}>${esc(x.kr)}${x.kr!==x.ja?' · '+esc(x.ja):''}</option>`).join('')}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function colToIdx(col){let n=0;for(const ch of col){n=n*26+(ch.charCodeAt(0)-64)}return n-1}
 function addr(sheet, a1){const m=/^([A-Z]+)(\d+)$/.exec(a1);return {sheet:sheetIds[sheet], col:colToIdx(m[1]), row:Number(m[2])-1}}
 function get(sheet, a1){try{return hf.getCellValue(addr(sheet,a1))}catch(e){return null}}
-function set(sheet, a1, val){try{hf.setCellContents(addr(sheet,a1), [[val===''?null:val]])}catch(e){lastError=e;console.error('set failed',sheet,a1,val,e)}}
+function normalizeCellValue(val){ return (val==='' || val===undefined) ? null : val; }
+function cellCacheKey(sheet, a1){ return `${sheet}!${a1}`; }
+function valueCacheKey(val){ return val === null ? 'null' : `${typeof val}:${String(val)}`; }
+function set(sheet, a1, val){
+  const normalized = normalizeCellValue(val);
+  const key = cellCacheKey(sheet,a1);
+  const vkey = valueCacheKey(normalized);
+  if(writeCache.get(key) === vkey) return;
+  try{
+    hf.setCellContents(addr(sheet,a1), [[normalized]]);
+    writeCache.set(key, vkey);
+  }catch(e){lastError=e;console.error('set failed',sheet,a1,val,e)}
+}
+function withFormulaBatch(fn){
+  if(!hf) return fn();
+  if(typeof hf.batch === 'function') return hf.batch(fn);
+  if(typeof hf.suspendEvaluation === 'function' && typeof hf.resumeEvaluation === 'function'){
+    hf.suspendEvaluation();
+    try { return fn(); } finally { hf.resumeEvaluation(); }
+  }
+  return fn();
+}
+function scheduleRun(delay=180){ clearTimeout(runTimer); runTimer=setTimeout(run, delay); }
 function fmt(v, digits=3){if(v==null||v===''||typeof v==='object')return '-'; if(typeof v==='number')return v.toFixed(digits); return String(v)}
 function initHF(){
   if(!window.HyperFormula) throw new Error('HyperFormula CDN을 불러오지 못했습니다. 인터넷 연결 또는 CDN 차단을 확인하세요.');
@@ -43,7 +68,7 @@ function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
 function renderResults(){
   $('actualTime').textContent=fmt(get('main','B29'),3); $('noskillTime').textContent=fmt(get('main','E29'),3); $('timeDiff').textContent=fmt(get('main','H29'),3); $('bodyDiff').textContent=fmt(get('main','J29'),3); $('meterDiff').textContent=fmt(get('main','N29'),3);
   for(const [id,cell] of [['eff_speed','AL3'],['eff_stamina','AL4'],['eff_power','AL5'],['eff_guts','AL6'],['eff_wisdom','AL7']]) $(id).textContent=fmt(get('db',cell),0);
-  $('formulaStatus').innerHTML=`<span class="status-ok">수식 엔진 ON</span> · ${DATA.meta.formulaMode} · formulas ${DATA.workbook.formulaCount.toLocaleString('ko-KR')}개`;
+  $('formulaStatus').innerHTML=`<span class="status-ok">수식 엔진 ON</span> · 최적화 배치계산 · formulas ${DATA.workbook.formulaCount.toLocaleString('ko-KR')}개${lastRunMs?` · 최근 ${lastRunMs.toFixed(0)}ms`:''}`;
   renderCourseInfo(); renderChart(); updateSkillPreviewValues();
 }
 function renderCourseInfo(){const c=currentCourse(); $('courseTitle').textContent=`${c.venue}/${c.distance} (${c.distanceType})/${c.turn}`; $('courseMeta').textContent=`${c.surface} · ${c.total}m · 코스보정 ${c.courseBonus1||'-'} ${c.courseBonus2||''}`; const segTable=(arr,withK=false)=>arr.length?arr.map((s,i)=>`<tr><td>${i+1}</td><td>${s[0]}m ~ ${s[1]}m</td>${withK?`<td>${s[2]}</td>`:''}</tr>`).join(''):'<tr><td colspan="3">-</td></tr>'; $('cornerRows').innerHTML=segTable(c.corners); $('straightRows').innerHTML=segTable(c.straights); $('uphillRows').innerHTML=segTable(c.uphills,true); $('downhillRows').innerHTML=segTable(c.downhills,true);}
@@ -55,14 +80,43 @@ function renderChart(){
   if(chart){chart.data=data; chart.update('none'); return;}
   chart=new Chart(ctx,{type:'line',data,options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top'},tooltip:{callbacks:{title:items=>`시간 ${items[0].label}s`,label:i=>`${i.dataset.label}: ${Number(i.parsed.y).toFixed(3)} m/s`}}},scales:{x:{title:{display:true,text:'경과시간[s]'},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'주행속도[m/s]'},min:14}}}});
 }
-function addSkillRow(s={}){skillRowCount++; const trEl=document.createElement('tr'); trEl.innerHTML=`<td>${skillRowCount}</td><td><input type="checkbox" data-k="enabled" ${s.enabled?'checked':''}></td><td><input type="checkbox" data-k="premise" ${s.premise?'checked':''}></td><td><select data-k="kindJ">${option(DATA.lists.kind,s.kindJ||'通常')}</select></td><td class="name"><input data-k="nameKR" list="skillList" value="${esc(s.nameKR||tr(s.nameJ)||'')}" placeholder="스킬명"></td><td><input data-k="target" type="number" step="0.001" value="${s.target??''}"></td><td><input data-k="accel" type="number" step="0.001" value="${s.accel??''}"></td><td><input data-k="instant" type="number" step="0.001" value="${s.instant??''}"></td><td><input data-k="stretch" type="number" step="0.001" value="${s.stretch??''}"></td><td><input data-k="duration" type="number" step="0.1" value="${s.duration??''}"></td><td><select data-k="triggerJ">${option(DATA.lists.trigger,s.triggerJ||'')}</select></td><td><input data-k="value" type="number" step="0.1" value="${s.value??''}"></td><td><select data-k="optionJ">${option(DATA.lists.option,s.optionJ||'')}</select></td><td class="small result">-</td>`; $('skillRows').appendChild(trEl); trEl.addEventListener('change',e=>{if(e.target.dataset.k==='nameKR') fillSkillJa(trEl);}); return trEl;}
+function addSkillRow(s={}){skillRowCount++; const trEl=document.createElement('tr'); trEl.innerHTML=`<td>${skillRowCount}</td><td><input type="checkbox" data-k="enabled" ${s.enabled?'checked':''}></td><td><input type="checkbox" data-k="premise" ${s.premise?'checked':''}></td><td><select data-k="kindJ">${option(DATA.lists.kind,s.kindJ||'通常')}</select></td><td class="name"><input data-k="nameKR" list="skillList" value="${esc(s.nameKR||tr(s.nameJ)||'')}" placeholder="스킬명"></td><td><input data-k="target" type="number" step="0.001" value="${s.target??''}"></td><td><input data-k="accel" type="number" step="0.001" value="${s.accel??''}"></td><td><input data-k="instant" type="number" step="0.001" value="${s.instant??''}"></td><td><input data-k="stretch" type="number" step="0.001" value="${s.stretch??''}"></td><td><input data-k="duration" type="number" step="0.1" value="${s.duration??''}"></td><td><select data-k="triggerJ">${option(DATA.lists.trigger,s.triggerJ||'')}</select></td><td><input data-k="value" type="number" step="0.1" value="${s.value??''}"></td><td><select data-k="optionJ">${option(DATA.lists.option,s.optionJ||'')}</select></td><td class="small result">-</td>`; $('skillRows').appendChild(trEl); return trEl;}
 function fillSkillJa(tr){const name=tr.querySelector('[data-k=nameKR]').value.trim(); const found=DATA.skills.find(s=>s.kr===name||s.ja===name||s.label===name); tr.dataset.nameJ=found?found.ja:name;}
 function readSkills(){return qsa('#skillRows tr').map(tr=>{fillSkillJa(tr); const g=k=>tr.querySelector(`[data-k=${k}]`); return {enabled:g('enabled').checked,premise:g('premise').checked,kindJ:g('kindJ').value,nameKR:g('nameKR').value.trim(),nameJ:tr.dataset.nameJ||g('nameKR').value.trim(),target:g('target').value,accel:g('accel').value,instant:g('instant').value,stretch:g('stretch').value,duration:g('duration').value,triggerJ:g('triggerJ').value,value:g('value').value,optionJ:g('optionJ').value};}).filter(s=>s.nameKR||s.target||s.accel||s.instant||s.stretch||s.duration);}
 function loadDefaults(){ $('skillRows').innerHTML=''; skillRowCount=0; DATA.defaultSkills.forEach(addSkillRow); for(let i=DATA.defaultSkills.length;i<12;i++) addSkillRow({kindJ:'通常'}); }
 function clearSkills(){ $('skillRows').innerHTML=''; skillRowCount=0; for(let i=0;i<12;i++) addSkillRow({kindJ:'通常'}); }
 function updateSkillPreviewValues(){qsa('#skillRows tr').forEach((tr,i)=>{const r=3+i; const pos=get('sim1','K'+r); const cell=tr.querySelector('.result'); if(cell) cell.textContent=typeof pos==='number'?`${pos.toFixed(1)}m`:'';});}
-function run(){try{lastError=null; syncInputsToWorkbook(); renderResults();}catch(e){lastError=e; console.error(e); $('formulaStatus').innerHTML=`<span class="status-bad">계산 오류</span> ${esc(e.message||e)}`;}}
+function run(){
+  try{
+    clearTimeout(runTimer);
+    lastError=null;
+    const t0 = performance.now();
+    withFormulaBatch(syncInputsToWorkbook);
+    renderResults();
+    lastRunMs = performance.now() - t0;
+    // renderResults()에서 상태를 먼저 그리므로, 실행시간을 반영해 한 번 더 갱신한다.
+    $('formulaStatus').innerHTML=`<span class="status-ok">수식 엔진 ON</span> · 최적화 배치계산 · formulas ${DATA.workbook.formulaCount.toLocaleString('ko-KR')}개 · 최근 ${lastRunMs.toFixed(0)}ms`;
+  }catch(e){lastError=e; console.error(e); $('formulaStatus').innerHTML=`<span class="status-bad">계산 오류</span> ${esc(e.message||e)}`;}
+}
 function saveJSON(){const state={inputs:Object.fromEntries(qsa('[data-save]').map(el=>[el.id,el.value])), skills:readSkills()}; const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='uma-simulator-settings.json'; a.click(); URL.revokeObjectURL(a.href)}
 function loadJSON(file){const reader=new FileReader(); reader.onload=()=>{const st=JSON.parse(reader.result); for(const [id,val] of Object.entries(st.inputs||{})){if($(id)) $(id).value=val} updateCourseOptions(); $('skillRows').innerHTML=''; skillRowCount=0; (st.skills||[]).forEach(addSkillRow); run();}; reader.readAsText(file)}
-function boot(){try{initHF(); fillSelects(); loadDefaults(); qsa('input,select').forEach(el=>el.addEventListener('change',()=>{if(el.id==='venue')updateCourseOptions(); run();})); $('runBtn').onclick=run; $('addSkill').onclick=()=>addSkillRow({kindJ:'通常'}); $('clearSkills').onclick=()=>{clearSkills();run()}; $('loadDefault').onclick=()=>{loadDefaults();run()}; $('saveJson').onclick=saveJSON; $('loadJson').addEventListener('change',e=>{if(e.target.files[0])loadJSON(e.target.files[0])}); run();}catch(e){console.error(e); $('formulaStatus').innerHTML=`<span class="status-bad">초기화 실패</span> ${esc(e.message||e)}`;}}
+function boot(){
+  try{
+    initHF(); fillSelects(); loadDefaults();
+    document.addEventListener('change', e=>{
+      const el=e.target;
+      if(!el.matches('input,select') || el.id==='loadJson') return;
+      if(el.id==='venue') updateCourseOptions();
+      if(el.dataset.k==='nameKR') fillSkillJa(el.closest('tr'));
+      scheduleRun();
+    });
+    $('runBtn').onclick=run;
+    $('addSkill').onclick=()=>{addSkillRow({kindJ:'通常'}); scheduleRun();};
+    $('clearSkills').onclick=()=>{clearSkills();run()};
+    $('loadDefault').onclick=()=>{loadDefaults();run()};
+    $('saveJson').onclick=saveJSON;
+    $('loadJson').addEventListener('change',e=>{if(e.target.files[0])loadJSON(e.target.files[0])});
+    run();
+  }catch(e){console.error(e); $('formulaStatus').innerHTML=`<span class="status-bad">초기화 실패</span> ${esc(e.message||e)}`;}
+}
 document.addEventListener('DOMContentLoaded', boot);
