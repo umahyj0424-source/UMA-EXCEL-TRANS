@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>우마무스메 스킬 시뮬레이터 ver.5.0 KR · Worker 수식 기반</title>
-<link rel="stylesheet" href="assets/style.css?v=chartfix1">
+<link rel="stylesheet" href="assets/style.css?v=autofill1">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="assets/ui-data.js?v=chartfix1"></script>
-<script defer src="assets/app.js?v=chartfix1"></script>
+<script src="assets/ui-data.js?v=mashinfix1"></script>
+<script defer src="assets/app.js?v=mashinfix1"></script>
 </head>
 <body>
 <div class="app">
@@ -36,7 +36,7 @@
       <div class="panel" style="margin-top:14px"><div class="section-title brown">마신차</div><div class="result-grid"><div class="result-card"><div class="label">실측 타임</div><div class="value" id="actualTime">-</div></div><div class="result-card"><div class="label">스킬 없음 타임</div><div class="value" id="noskillTime">-</div></div><div class="result-card"><div class="label">타임차</div><div class="value" id="timeDiff">-</div></div><div class="result-card"><div class="label">마신</div><div class="value" id="bodyDiff">-</div></div><div class="result-card"><div class="label">미터 환산</div><div class="value" id="meterDiff">-</div></div></div></div>
       <div class="panel" style="margin-top:14px"><div class="section-title brown">레이스 조건</div><div class="course-head"><div id="courseTitle">-</div><div class="small" id="courseMeta">-</div></div><div class="course-grid"><table><tr><th colspan="2">코너 구성</th></tr><tbody id="cornerRows"></tbody><tr><th colspan="2">직선 구성</th></tr><tbody id="straightRows"></tbody></table><table><tr><th colspan="3">오르막</th></tr><tbody id="uphillRows"></tbody><tr><th colspan="3">내리막</th></tr><tbody id="downhillRows"></tbody></table></div></div>
     </div>
-    <div><div class="chart-panel"><div class="chart-wrap"><canvas id="chart"></canvas></div></div><div class="skill-panel"><div class="section-title">스킬 설정</div><div class="toolbar" style="padding:8px"><button id="addSkill">행 추가</button><button id="loadDefault">기본 예시</button><button id="clearSkills" class="danger">초기화</button></div><datalist id="skillList"></datalist><table class="skill-table"><thead><tr><th>#</th><th>발동</th><th>전제</th><th>종류</th><th>스킬명</th><th>목표속도</th><th>가속도</th><th>즉시속도</th><th>뻗음</th><th>시간</th><th>발동조건</th><th>수치</th><th>옵션</th><th>실제 위치</th></tr></thead><tbody id="skillRows"></tbody></table></div></div>
+    <div><div class="chart-panel"><div class="chart-wrap"><canvas id="chart"></canvas></div></div><div class="skill-panel"><div class="section-title">스킬 설정</div><div class="toolbar" style="padding:8px"><button id="addSkill">행 추가</button><button id="loadDefault">기본 예시</button><button id="autoFillSkills">스킬 자동채움</button><button id="clearSkills" class="danger">초기화</button></div><datalist id="skillList"></datalist><table class="skill-table"><thead><tr><th>#</th><th>발동</th><th>전제</th><th>종류</th><th>스킬명</th><th>목표속도</th><th>가속도</th><th>즉시속도</th><th>뻗음</th><th>시간</th><th>발동조건</th><th>수치</th><th>옵션</th><th>실제 위치</th></tr></thead><tbody id="skillRows"></tbody></table></div></div>
   </div>
   <div class="footer">GitHub Pages 배포용 정적 사이트입니다. HyperFormula는 Worker 내부에서 CDN으로 로드하고, 차트는 Chart.js CDN을 사용합니다.</div>
 </div>

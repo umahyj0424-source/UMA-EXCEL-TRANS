@@ -44,7 +44,7 @@ function init(){
     sendStatus(10, 'HyperFormula CDN 로딩 중…');
     if(!self.HyperFormula) importScripts('https://cdn.jsdelivr.net/npm/hyperformula@2.7.1/dist/hyperformula.full.min.js');
     sendStatus(24, '원본 엑셀 수식 데이터 로딩 중…');
-    importScripts('workbook-data.js?v=chartfix1');
+    importScripts('workbook-data.js?v=mashinfix1');
     DATA = self.UMA_XLSX_DATA;
     sendStatus(42, '수식 엔진 생성 중…');
     hf = HyperFormula.buildFromSheets(DATA.workbook.sheets, { licenseKey:'gpl-v3', useArrayArithmetic:true, useColumnIndex:true, nullYear:30 });
@@ -222,6 +222,58 @@ function buildFormulaChart(){
   }
   return {labels, skill, noskill, source:'formula'};
 }
+function finiteNumberFromValue(v){
+  if(typeof v === 'number' && Number.isFinite(v)) return v;
+  if(typeof v === 'string'){
+    const m = v.replace(/,/g,'').match(/-?\d+(?:\.\d+)?/);
+    if(m){ const n = Number(m[0]); if(Number.isFinite(n)) return n; }
+  }
+  return null;
+}
+function isErrorLike(v){
+  return v == null || v === '' || typeof v === 'object' || (typeof v === 'number' && !Number.isFinite(v));
+}
+function secondsDisplay(v, digits=3){
+  if(typeof v === 'string' && /s\s*$/.test(v) && finiteNumberFromValue(v) !== null) return v;
+  const n = finiteNumberFromValue(v);
+  return n === null ? null : `${n.toFixed(digits)}s`;
+}
+function metersDisplay(v, digits=2){
+  if(typeof v === 'string' && /m\s*$/.test(v) && finiteNumberFromValue(v) !== null) return v;
+  const n = finiteNumberFromValue(v);
+  return n === null ? null : `${n.toFixed(digits)}m`;
+}
+function plainNumberDisplay(v, digits=3){
+  const n = finiteNumberFromValue(v);
+  return n === null ? null : Number(n.toFixed(digits));
+}
+function buildFallbackSummary(state){
+  const no = simulateFallback(state, false);
+  const yes = simulateFallback(state, true);
+  const timeDiff = Math.max(0, no.time - yes.time);
+  const lastYes = yes.points && yes.points.length ? yes.points[yes.points.length - 1].v : null;
+  const lastNo = no.points && no.points.length ? no.points[no.points.length - 1].v : null;
+  const endSpeed = Number.isFinite(lastYes) ? lastYes : (Number.isFinite(lastNo) ? lastNo : 20);
+  const meterDiff = timeDiff * endSpeed;
+  const bodyDiff = meterDiff / 2.5;
+  return {
+    actualTime: `${yes.time.toFixed(3)}s`,
+    noskillTime: `${no.time.toFixed(3)}s`,
+    timeDiff: `${timeDiff.toFixed(3)}s`,
+    bodyDiff: Number(bodyDiff.toFixed(3)),
+    meterDiff: `${meterDiff.toFixed(2)}m`
+  };
+}
+function firstDisplay(converters, fallback, ...refs){
+  for(const [sheet, a1] of refs){
+    const v = get(sheet, a1);
+    for(const conv of converters){
+      const d = conv(v);
+      if(d !== null && d !== undefined && d !== '') return d;
+    }
+  }
+  return fallback;
+}
 function buildResult(state={}){
   let chart = buildFormulaChart();
   let chartSource = 'formula';
@@ -231,11 +283,23 @@ function buildResult(state={}){
     const pos=get('sim1','K'+(3+i));
     skillPositions.push(typeof pos === 'number' ? pos : null);
   }
+  const fallbackSummary = buildFallbackSummary(state);
+  const results = {
+    actualTime: firstDisplay([secondsDisplay], fallbackSummary.actualTime, ['main','B29'], ['db','AL10']),
+    noskillTime: firstDisplay([secondsDisplay], fallbackSummary.noskillTime, ['main','E29'], ['db','AL11']),
+    timeDiff: firstDisplay([secondsDisplay], fallbackSummary.timeDiff, ['main','H29'], ['db','AL12']),
+    bodyDiff: firstDisplay([v=>plainNumberDisplay(v,3)], fallbackSummary.bodyDiff, ['main','J29'], ['db','AL13']),
+    meterDiff: firstDisplay([metersDisplay], fallbackSummary.meterDiff, ['main','N29'], ['db','AL14']),
+    eff_speed: firstDisplay([v=>plainNumberDisplay(v,0)], null, ['db','AL3']),
+    eff_stamina: firstDisplay([v=>plainNumberDisplay(v,0)], null, ['db','AL4']),
+    eff_power: firstDisplay([v=>plainNumberDisplay(v,0)], null, ['db','AL5']),
+    eff_guts: firstDisplay([v=>plainNumberDisplay(v,0)], null, ['db','AL6']),
+    eff_wisdom: firstDisplay([v=>plainNumberDisplay(v,0)], null, ['db','AL7'])
+  };
+  const formulaMashinOk = !isErrorLike(get('main','B29')) && !isErrorLike(get('main','E29')) && !isErrorLike(get('main','H29')) && !isErrorLike(get('main','J29')) && !isErrorLike(get('main','N29'));
   return {
-    results: {
-      actualTime:get('main','B29'), noskillTime:get('main','E29'), timeDiff:get('main','H29'), bodyDiff:get('main','J29'), meterDiff:get('main','N29'),
-      eff_speed:get('db','AL3'), eff_stamina:get('db','AL4'), eff_power:get('db','AL5'), eff_guts:get('db','AL6'), eff_wisdom:get('db','AL7')
-    },
+    results,
+    resultSource: formulaMashinOk ? 'formula' : 'fallback',
     chart,
     chartSource,
     chartPointCount: validChartPointCount(chart),
