@@ -1,0 +1,22 @@
+{
+  "created": {
+    "generatedAt": "2026-05-19T15:07:57.070121+00:00",
+    "sourceWorkbook": "ウマ娘スキルシミュレーターver.5.0.xlsx",
+    "sourceTranslation": "tempermonkey_uma.txt",
+    "courseCount": 138,
+    "skillNameCount": 1458,
+    "formulaMode": "xlsx-formula-extracted + HyperFormula runtime"
+  },
+  "files": [
+    "index.html",
+    "assets/style.css",
+    "assets/app.js",
+    "assets/workbook-data.js",
+    "README.md"
+  ],
+  "notes": [
+    "Formula cells extracted from XLSX",
+    "Dynamic array spill formulas patched for static JS formula engine",
+    "UI writes user inputs back into original main sheet cells"
+  ]
+}
